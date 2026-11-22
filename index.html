@@ -203,7 +203,20 @@ function recordLoc(street, no, silent) {
 }
 function navTo(street, no) {
   const l = getLoc(street, no); if (!l) return;
-  window.open(`https://www.google.com/maps/dir/?api=1&destination=${l.lat},${l.lng}&travelmode=driving`, '_blank');
+  const ll = `${l.lat},${l.lng}`;
+  const web = `https://www.google.com/maps/dir/?api=1&destination=${ll}&travelmode=driving&dir_action=navigate`;
+  const ua = navigator.userAgent;
+  if (/Android/i.test(ua)) {
+    // 直接以經緯度啟動 Google 地圖逐步導航（開車）
+    location.href = `intent://navigation?q=${ll}&mode=d#Intent;scheme=google.navigation;package=com.google.android.apps.maps;S.browser_fallback_url=${encodeURIComponent(web)};end`;
+  } else if (/iPhone|iPad|iPod/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) {
+    // iOS：開啟 Google 地圖 App 導航；沒安裝則改開網頁版
+    const t = Date.now();
+    location.href = `comgooglemaps://?daddr=${ll}&directionsmode=driving`;
+    setTimeout(() => { if (!document.hidden && Date.now() - t < 2500) location.href = web; }, 1500);
+  } else {
+    window.open(web, '_blank');
+  }
 }
 
 /* ================= 操作 ================= */
