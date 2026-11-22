@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f6feb">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>包裹遞送助手</title>
+<style>
+:root{
+  --bg:#f3f5f8; --card:#fff; --text:#1d2330; --muted:#6b7385; --line:#e3e7ee;
+  --primary:#1f6feb; --primary-soft:#e7f0ff; --ok:#1a9c5b; --ok-soft:#e3f6ec;
+  --warn:#d9480f; --danger:#d63c3c;
+}
+@media (prefers-color-scheme: dark){
+  :root{--bg:#0f1218;--card:#1a1f29;--text:#e8ebf2;--muted:#9099ab;--line:#2a3140;
+  --primary:#4c8dff;--primary-soft:#1c2a44;--ok:#38c37f;--ok-soft:#173326;}
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI","Noto Sans TC","Microsoft JhengHei",sans-serif;font-size:16px}
+button{font:inherit;color:inherit;cursor:pointer}
+input,select{font:inherit;color:var(--text);background:var(--card)}
+.wrap{max-width:760px;margin:0 auto;padding:0 12px 120px}
+
+/* header */
+header{position:sticky;top:0;z-index:20;background:var(--primary);color:#fff;padding:10px 12px calc(10px);box-shadow:0 2px 8px rgba(0,0,0,.15)}
+.hrow{max-width:760px;margin:0 auto;display:flex;align-items:center;gap:8px}
+.hrow select{flex:1;min-width:0;font-size:20px;font-weight:700;border:0;border-radius:8px;padding:6px 8px;background:rgba(255,255,255,.15);color:#fff}
+.hrow select option{color:#000}
+.hbtn{border:0;background:rgba(255,255,255,.15);color:#fff;border-radius:8px;padding:8px 10px;font-size:15px;white-space:nowrap}
+.stats{max-width:760px;margin:8px auto 0;display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.stat{background:rgba(255,255,255,.14);border-radius:10px;padding:6px 8px;text-align:center}
+.stat b{display:block;font-size:24px;line-height:1.1}
+.stat span{font-size:12px;opacity:.9}
+.progress{max-width:760px;margin:8px auto 0;height:6px;background:rgba(255,255,255,.25);border-radius:3px;overflow:hidden}
+.progress i{display:block;height:100%;background:#7ef0b0;width:0;transition:width .4s}
+
+/* quick add */
+.quick{display:flex;gap:6px;margin:12px 0}
+.quick input{flex:1;min-width:0;border:1px solid var(--line);border-radius:10px;padding:12px}
+.btn{border:0;border-radius:10px;padding:10px 14px;background:var(--primary);color:#fff;font-weight:600}
+.btn.ghost{background:var(--card);color:var(--text);border:1px solid var(--line)}
+.btn.danger{background:var(--danger)}
+.btn.sm{padding:6px 10px;font-size:14px}
+
+.toolbar{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.chip{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:6px 12px;font-size:14px}
+.chip.on{background:var(--primary-soft);border-color:var(--primary);color:var(--primary)}
+
+/* street */
+.street{background:var(--card);border-radius:12px;margin-bottom:8px;box-shadow:0 1px 2px rgba(0,0,0,.05);overflow:hidden}
+.street.empty .sname{color:var(--muted)}
+.shead{display:flex;align-items:center;gap:8px;padding:12px;user-select:none;cursor:pointer}
+.chev{transition:transform .2s;color:var(--muted);width:16px;text-align:center}
+.street.open .chev{transform:rotate(90deg)}
+.sname{font-size:18px;font-weight:700;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.badge{font-size:13px;border-radius:999px;padding:3px 8px;background:var(--primary-soft);color:var(--primary);white-space:nowrap}
+.badge.pk{background:#fff1e6;color:var(--warn)}
+@media (prefers-color-scheme: dark){.badge.pk{background:#3a2516}}
+.badge.zero{background:var(--ok-soft);color:var(--ok)}
+.sortbtns{display:flex;gap:4px}
+.sortbtns button{border:1px solid var(--line);background:var(--card);border-radius:8px;width:38px;height:36px;font-size:16px}
+.sbody{display:none;border-top:1px solid var(--line);padding:8px 12px 12px}
+.street.open .sbody{display:block}
+.addrow{display:flex;gap:6px;margin-bottom:8px}
+.addrow input.no{flex:1;min-width:0;border:1px solid var(--line);border-radius:10px;padding:10px;font-size:18px}
+.addrow input.qty{width:64px;border:1px solid var(--line);border-radius:10px;padding:10px;text-align:center;font-size:18px}
+
+.items{display:flex;flex-wrap:wrap;gap:8px}
+.item{display:flex;align-items:stretch;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--card);max-width:100%}
+.item .tap{border:0;background:transparent;padding:10px 12px;font-size:20px;font-weight:700;font-variant-numeric:tabular-nums;display:flex;align-items:center;gap:6px}
+.item .q{font-size:14px;font-weight:700;background:var(--warn);color:#fff;border-radius:999px;padding:1px 7px}
+.item .nav,.item .more{border:0;border-left:1px solid var(--line);background:transparent;padding:0 10px;font-size:18px}
+.item .nav{background:var(--ok-soft)}
+.item.done .tap{text-decoration:line-through;text-decoration-thickness:3px;color:var(--muted)}
+.item.done{background:var(--bg)}
+.item.fading{animation:fadeout 2.4s ease forwards}
+@keyframes fadeout{0%,45%{opacity:1;transform:scale(1)}100%{opacity:0;transform:scale(.85)}}
+.hint{color:var(--muted);font-size:13px;margin:6px 0 0}
+.emptymsg{color:var(--muted);font-size:14px;padding:4px 0}
+
+/* sheet / modal */
+.mask{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:50;display:none;align-items:flex-end;justify-content:center}
+.mask.show{display:flex}
+.sheet{background:var(--card);width:100%;max-width:760px;max-height:88vh;overflow:auto;border-radius:16px 16px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom))}
+@media (min-width:700px){.mask{align-items:center}.sheet{border-radius:16px;max-width:560px}}
+.sheet h3{margin:0 0 12px;font-size:19px}
+.sheet .row{display:flex;gap:8px;align-items:center;margin-bottom:10px}
+.sheet .row input{flex:1;min-width:0;border:1px solid var(--line);border-radius:10px;padding:10px}
+.list{border:1px solid var(--line);border-radius:10px;margin-bottom:12px}
+.list .li{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid var(--line)}
+.list .li:last-child{border-bottom:0}
+.list .li span{flex:1;min-width:0}
+.menu button{display:block;width:100%;text-align:left;border:0;border-bottom:1px solid var(--line);background:transparent;padding:14px 4px;font-size:17px}
+.menu button:last-child{border-bottom:0}
+.menu .red{color:var(--danger)}
+.sheet textarea{width:100%;min-height:120px;border:1px solid var(--line);border-radius:10px;padding:10px;font:inherit;background:var(--card);color:var(--text)}
+.small{font-size:13px;color:var(--muted)}
+
+/* toast */
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));transform:translateX(-50%) translateY(150%);background:#222a38;color:#fff;border-radius:12px;padding:10px 12px 10px 16px;display:flex;gap:12px;align-items:center;z-index:60;transition:transform .25s;max-width:92vw;box-shadow:0 4px 16px rgba(0,0,0,.3)}
+.toast.show{transform:translateX(-50%) translateY(0)}
+.toast button{border:0;background:#4c8dff;color:#fff;border-radius:8px;padding:6px 12px;font-weight:700}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="hrow">
+    <select id="secSel" aria-label="選擇區段"></select>
+    <button class="hbtn" id="btnSort">排序</button>
+    <button class="hbtn" id="btnMenu">☰</button>
+  </div>
+  <div class="stats">
+    <div class="stat"><b id="stLoc">0</b><span>剩餘地點</span></div>
+    <div class="stat"><b id="stPkg">0</b><span>剩餘包裹</span></div>
+    <div class="stat"><b id="stDone">0</b><span>已完成包裹</span></div>
+  </div>
+  <div class="progress"><i id="prog"></i></div>
+</header>
+
+<div class="wrap">
+  <div class="quick">
+    <input id="quickIn" placeholder="快速輸入：北埔路101巷5號 x2" enterkeyhint="done" autocomplete="off">
+    <button class="btn" id="quickBtn">新增</button>
+  </div>
+  <div class="toolbar">
+    <button class="chip" id="tgHideEmpty">只顯示有包裹的街道</button>
+    <button class="chip" id="tgShowDone">顯示已完成</button>
+    <button class="chip" id="btnExpandAll">全部展開</button>
+    <button class="chip" id="btnCollapseAll">全部收折</button>
+  </div>
+  <div id="streets"></div>
+</div>
+
+<div class="mask" id="mask"><div class="sheet" id="sheet"></div></div>
+<div class="toast" id="toast"><span id="toastMsg"></span><button id="toastBtn">復原</button></div>
+
+<script>
+/* ================= 資料 ================= */
+const KEY = 'parcel-helper-v1';
+const DEFAULT_STREETS = ['仁義街','中興路','助人街','復興路','北埔路','光復路','自信街','建國街','自助街','民族路','自立街','民生路','自強街','民享街','華興街','華陽街','華富街','華德街','大德街(小)','大德街(大)','民有街(小)','民有街(大)','漁場街','德莊','大漢街','大華街','大同街','大有街','大行街','大賢街','太平197','康樂路','康樂路一','康樂路三','精舍街','廣安一街','廣安二街','廣安三街1','廣安三街2','廣安三街3','廣安三街5','廣安三街6','康平街','康泰街','紫園巷','紫園巷一','紫園巷二','鄉根一','鄉根二','康樂加灣','南三棧','景美加灣','佳民','佳林','樹林街','樹人街','樹德街'];
+
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+const newStreet = name => ({ id: uid(), name, items: [] });
+
+function load() {
+  try { const s = JSON.parse(localStorage.getItem(KEY)); if (s && s.sections) return s; } catch (e) {}
+  const sec = { id: uid(), name: '宗四', streets: DEFAULT_STREETS.map(newStreet) };
+  return { sections: [sec], cur: sec.id, locations: {}, hideEmpty: false, showDone: false, autoLoc: true };
+}
+let S = load();
+function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { alert('儲存失敗：' + e.message); } }
+
+const sec = () => S.sections.find(x => x.id === S.cur) || S.sections[0];
+const expanded = new Set();     // 預設收折
+let sortMode = false;
+
+/* ================= 地址解析 ================= */
+const toHalf = s => s.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+  .replace(/[－—–―ー]/g, '-').replace(/[ｘＸ×＊]/g, 'x').replace(/　/g, ' ');
+
+// "101巷5號" -> "101-5"；"5巷5弄1號" -> "5-5-1"；"101-5" 保留
+function normNo(raw) {
+  let s = toHalf(raw).trim();
+  s = s.replace(/號\s*之\s*(\d+)/, '之$1號'); // 12號之1 -> 12之1
+  s = s.replace(/號.*$/, '');            // 號之後(樓層等)去掉
+  s = s.replace(/\s*(巷|弄)\s*/g, '-');
+  s = s.replace(/[^0-9之\-]/g, '');
+  s = s.replace(/-+/g, '-').replace(/^-|-$/g, '');
+  return s;
+}
+// 解析 "101-5 x2" / "101-5*2" / "101-5 2" -> {no, qty}
+function parseNoQty(raw) {
+  let s = toHalf(raw).trim(), qty = 0;
+  let m = s.match(/^(.*?)\s*[x*]\s*(\d+)\s*$/i);
+  if (m) { s = m[1]; qty = +m[2]; }
+  else if ((m = s.match(/^(.*\d.*?)\s+(\d+)\s*(個|件)?$/))) { s = m[1]; qty = +m[2]; }
+  return { no: normNo(s), qty };
+}
+// 門牌自然排序
+function cmpNo(a, b) {
+  const pa = a.split(/[-之]/).map(Number), pb = b.split(/[-之]/).map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const x = pa[i] ?? -1, y = pb[i] ?? -1;
+    if (x !== y) return x - y;
+  }
+  return 0;
+}
+
+/* ================= 定位 ================= */
+const locKey = (street, no) => street + '|' + no;
+function getLoc(street, no) { return S.locations[locKey(street, no)]; }
+function recordLoc(street, no, silent) {
+  if (!navigator.geolocation) { if (!silent) alert('此裝置不支援定位'); return; }
+  navigator.geolocation.getCurrentPosition(p => {
+    S.locations[locKey(street, no)] = { lat: +p.coords.latitude.toFixed(6), lng: +p.coords.longitude.toFixed(6), acc: Math.round(p.coords.accuracy), t: Date.now() };
+    save(); render();
+    if (!silent) toast(`已記錄定位：${street} ${no}`);
+  }, err => {
+    if (!silent) alert('定位失敗：' + err.message + '\n(手機需使用 https 網址開啟並允許定位權限)');
+  }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 });
+}
+function navTo(street, no) {
+  const l = getLoc(street, no); if (!l) return;
+  window.open(`https://www.google.com/maps/dir/?api=1&destination=${l.lat},${l.lng}&travelmode=driving`, '_blank');
+}
+
+/* ================= 操作 ================= */
+function addItem(street, raw, qtyField) {
+  const { no, qty } = parseNoQty(raw);
+  if (!no) return false;
+  const q = qty || Math.max(1, parseInt(qtyField) || 1);
+  const ex = street.items.find(i => i.no === no && !i.done);
+  if (ex) ex.qty += q;
+  else street.items.push({ id: uid(), no, qty: q, done: false });
+  street.items.sort((a, b) => cmpNo(a.no, b.no));
+  save(); return { no, q, merged: !!ex };
+}
+
+let lastDone = null;
+function toggleDone(street, item) {
+  item.done = !item.done;
+  if (item.done) {
+    item.doneAt = Date.now();
+    lastDone = { sid: street.id, iid: item.id };
+    if (S.autoLoc) recordLoc(street.name, item.no, true);
+    toast(`✔ ${street.name} ${item.no}` + (item.qty > 1 ? ` (${item.qty}件)` : ''), () => {
+      item.done = false; delete item.doneAt; save(); render();
+    });
+    setTimeout(render, 2600);
+  } else delete item.doneAt;
+  save(); render();
+}
+
+/* ================= 畫面 ================= */
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+function counts(st) {
+  let loc = 0, pkg = 0, dpkg = 0;
+  for (const i of st.items) { if (i.done) dpkg += i.qty; else { loc++; pkg += i.qty; } }
+  return { loc, pkg, dpkg };
+}
+
+function render() {
+  const s = sec();
+  // 區段選單
+  $('secSel').innerHTML = S.sections.map(x => `<option value="${x.id}" ${x.id === s.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('');
+  $('btnSort').textContent = sortMode ? '完成排序' : '排序';
+  $('tgHideEmpty').classList.toggle('on', S.hideEmpty);
+  $('tgShowDone').classList.toggle('on', S.showDone);
+
+  let tl = 0, tp = 0, td = 0;
+  const now = Date.now();
+  const html = s.streets.map((st, idx) => {
+    const c = counts(st); tl += c.loc; tp += c.pkg; td += c.dpkg;
+    if (S.hideEmpty && !sortMode && c.loc === 0 && !st.items.some(i => i.done && now - i.doneAt < 2500)) return '';
+    const open = expanded.has(st.id) && !sortMode;
+    const visible = st.items.filter(i => !i.done || S.showDone || now - i.doneAt < 2500);
+    const items = visible.map(i => {
+      const fading = i.done && !S.showDone && now - i.doneAt < 2500;
+      const hasLoc = !!getLoc(st.name, i.no);
+      return `<div class="item ${i.done ? 'done' : ''} ${fading ? 'fading' : ''}" data-s="${st.id}" data-i="${i.id}">
+        <button class="tap" data-act="done">${hasLoc ? '📍' : ''}${esc(i.no)}${i.qty > 1 ? `<span class="q">${i.qty}</span>` : ''}</button>
+        ${hasLoc ? `<button class="nav" data-act="nav" title="Google 地圖導航">🧭</button>` : ''}
+        <button class="more" data-act="more" title="更多">⋯</button>
+      </div>`;
+    }).join('');
+    return `<div class="street ${open ? 'open' : ''} ${c.loc === 0 ? 'empty' : ''}" data-s="${st.id}">
+      <div class="shead" data-act="toggle">
+        ${sortMode ? '' : '<span class="chev">▶</span>'}
+        <span class="sname">${esc(st.name)}</span>
+        ${sortMode
+          ? `<div class="sortbtns"><button data-act="top" title="移到最上">⤒</button><button data-act="up" ${idx === 0 ? 'disabled' : ''}>↑</button><button data-act="down" ${idx === s.streets.length - 1 ? 'disabled' : ''}>↓</button><button data-act="bottom" title="移到最下">⤓</button></div>`
+          : `<span class="badge ${c.loc ? '' : 'zero'}">門牌 ${c.loc}</span><span class="badge pk ${c.pkg ? '' : 'zero'}">包裹 ${c.pkg}</span>`}
+      </div>
+      ${open ? `<div class="sbody">
+        <div class="addrow">
+          <input class="no" placeholder="門牌，如 101-5 或 101巷5號" inputmode="text" enterkeyhint="go" autocomplete="off">
+          <input class="qty" type="number" min="1" value="1" inputmode="numeric" aria-label="數量">
+          <button class="btn" data-act="add">＋</button>
+        </div>
+        <div class="items">${items || '<div class="emptymsg">尚無門牌</div>'}</div>
+        <p class="hint">點門牌＝畫掉（完成）；📍＝有定位紀錄，🧭＝開啟 Google 地圖導航</p>
+      </div>` : ''}
+    </div>`;
+  }).join('');
+  $('streets').innerHTML = html || '<p class="emptymsg">此區段沒有街道，請從 ☰ →「管理街道」新增。</p>';
+
+  $('stLoc').textContent = tl; $('stPkg').textContent = tp; $('stDone').textContent = td;
+  $('prog').style.width = (tp + td ? td / (tp + td) * 100 : 0) + '%';
+}
+
+/* ================= 事件 ================= */
+$('streets').addEventListener('click', e => {
+  const b = e.target.closest('[data-act]'); if (!b) return;
+  const stEl = b.closest('.street'); const s = sec();
+  const st = s.streets.find(x => x.id === stEl.dataset.s); if (!st) return;
+  const act = b.dataset.act;
+  const idx = s.streets.indexOf(st);
+  const move = to => { s.streets.splice(idx, 1); s.streets.splice(to, 0, st); save(); render(); };
+  if (act === 'toggle') {
+    if (sortMode) return;
+    expanded.has(st.id) ? expanded.delete(st.id) : expanded.add(st.id); render();
+    if (expanded.has(st.id)) { const inp = document.querySelector(`.street[data-s="${st.id}"] input.no`); inp && !matchMedia('(pointer:coarse)').matches && inp.focus(); }
+  }
+  else if (act === 'up' && idx > 0) { e.stopPropagation(); move(idx - 1); }
+  else if (act === 'down' && idx < s.streets.length - 1) { e.stopPropagation(); move(idx + 1); }
+  else if (act === 'top') { e.stopPropagation(); move(0); }
+  else if (act === 'bottom') { e.stopPropagation(); move(s.streets.length - 1); }
+  else if (act === 'add') doAdd(stEl, st);
+  else {
+    const itEl = b.closest('.item'); const it = st.items.find(x => x.id === itEl.dataset.i); if (!it) return;
+    if (act === 'done') toggleDone(st, it);
+    else if (act === 'nav') navTo(st.name, it.no);
+    else if (act === 'more') itemMenu(st, it);
+  }
+});
+$('streets').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && e.target.matches('input')) {
+    const stEl = e.target.closest('.street'); const st = sec().streets.find(x => x.id === stEl.dataset.s);
+    doAdd(stEl, st);
+  }
+});
+function doAdd(stEl, st) {
+  const inp = stEl.querySelector('input.no'), q = stEl.querySelector('input.qty');
+  const r = addItem(st, inp.value, q.value);
+  if (!r) { inp.focus(); return; }
+  render();
+  const ni = document.querySelector(`.street[data-s="${st.id}"] input.no`); ni && ni.focus();
+  toast(`已新增 ${st.name} ${r.no}` + (r.merged ? `（數量 +${r.q}）` : r.q > 1 ? ` ×${r.q}` : ''));
+}
+
+// 快速輸入：北埔路101巷5號 x2
+function quickAdd() {
+  const raw = toHalf($('quickIn').value.trim()); if (!raw) return;
+  const s = sec();
+  // 找最長相符的街道名稱
+  const cands = s.streets.filter(st => raw.startsWith(st.name) || raw.startsWith(st.name.replace(/\(.*\)/, '')))
+    .sort((a, b) => b.name.length - a.name.length);
+  let st = cands[0], rest;
+  if (st) rest = raw.slice(raw.startsWith(st.name) ? st.name.length : st.name.replace(/\(.*\)/, '').length);
+  else {
+    const m = raw.match(/^(.+?(?:路|街|巷|大道))(\d.*)$/);
+    if (!m) { alert('找不到符合的街道名稱，請確認輸入或先新增街道。'); return; }
+    if (!confirm(`「${s.name}」沒有「${m[1]}」，要新增這條街道嗎？`)) return;
+    st = newStreet(m[1]); s.streets.push(st); rest = m[2];
+  }
+  if (cands.length > 1 && cands[0].name.replace(/\(.*\)/, '') === cands[1].name.replace(/\(.*\)/, '') && !raw.startsWith(cands[0].name)) {
+    // 例如 大德街(小)/大德街(大) 無法判斷
+    const pick = prompt(`請選擇街道：\n${cands.map((c, i) => `${i + 1}. ${c.name}`).join('\n')}`, '1');
+    const n = parseInt(pick); if (!n || !cands[n - 1]) return; st = cands[n - 1];
+  }
+  const r = addItem(st, rest, 1);
+  if (!r) { alert('無法解析門牌號碼'); return; }
+  $('quickIn').value = '';
+  render();
+  toast(`已新增 ${st.name} ${r.no}` + (r.merged ? `（數量 +${r.q}）` : r.q > 1 ? ` ×${r.q}` : ''));
+}
+$('quickBtn').onclick = quickAdd;
+$('quickIn').addEventListener('keydown', e => { if (e.key === 'Enter') quickAdd(); });
+
+$('secSel').onchange = e => { S.cur = e.target.value; expanded.clear(); save(); render(); };
+$('btnSort').onclick = () => { sortMode = !sortMode; render(); };
+$('tgHideEmpty').onclick = () => { S.hideEmpty = !S.hideEmpty; save(); render(); };
+$('tgShowDone').onclick = () => { S.showDone = !S.showDone; save(); render(); };
+$('btnExpandAll').onclick = () => { sec().streets.forEach(st => expanded.add(st.id)); render(); };
+$('btnCollapseAll').onclick = () => { expanded.clear(); render(); };
+
+/* ================= Toast ================= */
+let toastTimer, toastUndo;
+function toast(msg, undo) {
+  $('toastMsg').textContent = msg; toastUndo = undo;
+  $('toastBtn').style.display = undo ? '' : 'none';
+  $('toast').classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => $('toast').classList.remove('show'), undo ? 4000 : 1800);
+}
+$('toastBtn').onclick = () => { toastUndo && toastUndo(); toastUndo = null; $('toast').classList.remove('show'); };
+
+/* ================= 彈出視窗 ================= */
+function openSheet(html, bind) { $('sheet').innerHTML = html; $('mask').classList.add('show'); bind && bind($('sheet')); }
+function closeSheet() { $('mask').classList.remove('show'); }
+$('mask').addEventListener('click', e => { if (e.target === $('mask')) closeSheet(); });
+
+function itemMenu(st, it) {
+  const l = getLoc(st.name, it.no);
+  openSheet(`<h3>${esc(st.name)} ${esc(it.no)}</h3>
+    <p class="small">${l ? `定位紀錄：${l.lat}, ${l.lng}（約 ±${l.acc ?? '?'} 公尺，${new Date(l.t).toLocaleString()}）` : '尚無定位紀錄'}</p>
+    <div class="menu">
+      <button data-m="done">${it.done ? '↩ 取消完成' : '✔ 標記完成（畫掉）'}</button>
+      <button data-m="qty">✏️ 修改數量（目前 ${it.qty}）</button>
+      <button data-m="edit">✏️ 修改門牌</button>
+      ${l ? '<button data-m="nav">🧭 Google 地圖導航</button>' : ''}
+      <button data-m="loc">📍 ${l ? '重新記錄' : '記錄'}目前位置為此地址</button>
+      ${l ? '<button data-m="delloc" class="red">移除定位紀錄</button>' : ''}
+      <button data-m="del" class="red">🗑 刪除此門牌</button>
+      <button data-m="close">關閉</button>
+    </div>`, sh => sh.querySelectorAll('[data-m]').forEach(b => b.onclick = () => {
+      const m = b.dataset.m; closeSheet();
+      if (m === 'done') toggleDone(st, it);
+      else if (m === 'qty') { const v = parseInt(prompt('數量', it.qty)); if (v > 0) { it.qty = v; save(); render(); } }
+      else if (m === 'edit') {
+        const v = prompt('門牌（例如 101-5）', it.no); if (v == null) return;
+        const n = normNo(v); if (!n) return;
+        const oldL = getLoc(st.name, it.no);
+        if (oldL && !getLoc(st.name, n)) S.locations[locKey(st.name, n)] = oldL;
+        it.no = n; st.items.sort((a, b) => cmpNo(a.no, b.no)); save(); render();
+      }
+      else if (m === 'nav') navTo(st.name, it.no);
+      else if (m === 'loc') recordLoc(st.name, it.no, false);
+      else if (m === 'delloc') { if (confirm('確定移除這個地址的定位紀錄？')) { delete S.locations[locKey(st.name, it.no)]; save(); render(); } }
+      else if (m === 'del') { if (confirm(`刪除 ${st.name} ${it.no}？`)) { st.items = st.items.filter(x => x !== it); save(); render(); } }
+    }));
+}
+
+$('btnMenu').onclick = () => {
+  openSheet(`<h3>選單</h3><div class="menu">
+    <button data-m="streets">🛣 管理街道（${esc(sec().name)}）</button>
+    <button data-m="sections">🗂 管理區段</button>
+    <button data-m="autoloc">📍 完成時自動記錄定位：${S.autoLoc ? '開' : '關'}</button>
+    <button data-m="clearDone">🧹 清除已完成的門牌</button>
+    <button data-m="newday" class="red">🌅 開始新的一天（清空本區段所有門牌）</button>
+    <button data-m="locs">🗺 定位紀錄（${Object.keys(S.locations).length} 筆）</button>
+    <button data-m="backup">💾 備份 / 還原資料</button>
+    <button data-m="close">關閉</button></div>`,
+    sh => sh.querySelectorAll('[data-m]').forEach(b => b.onclick = () => {
+      const m = b.dataset.m, s = sec();
+      if (m === 'streets') return streetMgr();
+      if (m === 'sections') return sectionMgr();
+      if (m === 'locs') return locMgr();
+      if (m === 'backup') return backupMgr();
+      closeSheet();
+      if (m === 'autoloc') { S.autoLoc = !S.autoLoc; save(); if (S.autoLoc) recordLocPermissionHint(); toast('自動記錄定位：' + (S.autoLoc ? '開' : '關')); }
+      if (m === 'clearDone') { s.streets.forEach(st => st.items = st.items.filter(i => !i.done)); save(); render(); toast('已清除已完成的門牌'); }
+      if (m === 'newday' && confirm(`確定清空「${s.name}」所有門牌？（定位紀錄會保留）`)) { s.streets.forEach(st => st.items = []); save(); render(); toast('已清空，祝今天順利！'); }
+    }));
+};
+function recordLocPermissionHint() { navigator.geolocation && navigator.geolocation.getCurrentPosition(() => {}, () => {}, { timeout: 5000 }); }
+
+function streetMgr() {
+  const s = sec();
+  openSheet(`<h3>管理街道：${esc(s.name)}</h3>
+    <div class="row"><input id="nsName" placeholder="新街道名稱（可用逗號或換行一次加多條）"><button class="btn" id="nsAdd">新增</button></div>
+    <div class="list">${s.streets.map((st, i) => `<div class="li" data-i="${i}"><span>${esc(st.name)}${st.items.length ? ` <span class="small">(${st.items.length})</span>` : ''}</span>
+      <button class="btn ghost sm" data-a="up">↑</button><button class="btn ghost sm" data-a="down">↓</button>
+      <button class="btn ghost sm" data-a="ren">改名</button><button class="btn danger sm" data-a="del">刪除</button></div>`).join('') || '<div class="li"><span class="small">尚無街道</span></div>'}</div>
+    <button class="btn ghost" id="close">關閉</button>`, sh => {
+    sh.querySelector('#close').onclick = () => { closeSheet(); render(); };
+    const add = () => {
+      const names = sh.querySelector('#nsName').value.split(/[,，、\n]/).map(x => x.trim()).filter(Boolean);
+      names.forEach(n => { if (!s.streets.some(x => x.name === n)) s.streets.push(newStreet(n)); });
+      save(); render(); streetMgr();
+    };
+    sh.querySelector('#nsAdd').onclick = add;
+    sh.querySelector('#nsName').onkeydown = e => { if (e.key === 'Enter') add(); };
+    sh.querySelectorAll('.li[data-i] button').forEach(b => b.onclick = () => {
+      const i = +b.closest('.li').dataset.i, st = s.streets[i], a = b.dataset.a;
+      if (a === 'up' && i > 0) [s.streets[i - 1], s.streets[i]] = [s.streets[i], s.streets[i - 1]];
+      if (a === 'down' && i < s.streets.length - 1) [s.streets[i + 1], s.streets[i]] = [s.streets[i], s.streets[i + 1]];
+      if (a === 'ren') {
+        const n = prompt('新名稱', st.name); if (!n || !n.trim() || n.trim() === st.name) return;
+        const nn = n.trim();
+        // 定位紀錄跟著改名
+        for (const k of Object.keys(S.locations)) if (k.startsWith(st.name + '|')) { S.locations[nn + k.slice(st.name.length)] = S.locations[k]; delete S.locations[k]; }
+        st.name = nn;
+      }
+      if (a === 'del') { if (!confirm(`刪除街道「${st.name}」${st.items.length ? `及其 ${st.items.length} 個門牌` : ''}？`)) return; s.streets.splice(i, 1); }
+      save(); render(); streetMgr();
+    });
+  });
+}
+
+function sectionMgr() {
+  openSheet(`<h3>管理區段</h3>
+    <div class="row"><input id="nsec" placeholder="新區段名稱"><button class="btn" id="addSec">新增</button></div>
+    <div class="list">${S.sections.map((x, i) => `<div class="li" data-i="${i}"><span>${esc(x.name)} <span class="small">(${x.streets.length} 條街)</span>${x.id === S.cur ? ' ✅' : ''}</span>
+      <button class="btn ghost sm" data-a="use">使用</button><button class="btn ghost sm" data-a="copy">複製</button>
+      <button class="btn ghost sm" data-a="ren">改名</button><button class="btn danger sm" data-a="del">刪除</button></div>`).join('')}</div>
+    <button class="btn ghost" id="close">關閉</button>`, sh => {
+    sh.querySelector('#close').onclick = closeSheet;
+    sh.querySelector('#addSec').onclick = () => {
+      const n = sh.querySelector('#nsec').value.trim(); if (!n) return;
+      const x = { id: uid(), name: n, streets: [] }; S.sections.push(x); S.cur = x.id; expanded.clear();
+      save(); render(); streetMgr();
+    };
+    sh.querySelectorAll('.li button').forEach(b => b.onclick = () => {
+      const i = +b.closest('.li').dataset.i, x = S.sections[i], a = b.dataset.a;
+      if (a === 'use') { S.cur = x.id; expanded.clear(); save(); render(); closeSheet(); return; }
+      if (a === 'copy') { const n = prompt('新區段名稱', x.name + ' 複本'); if (!n) return; S.sections.push({ id: uid(), name: n.trim(), streets: x.streets.map(st => newStreet(st.name)) }); }
+      if (a === 'ren') { const n = prompt('新名稱', x.name); if (!n || !n.trim()) return; x.name = n.trim(); }
+      if (a === 'del') {
+        if (S.sections.length === 1) { alert('至少要保留一個區段'); return; }
+        if (!confirm(`刪除區段「${x.name}」？`)) return;
+        S.sections.splice(i, 1); if (S.cur === x.id) S.cur = S.sections[0].id;
+      }
+      save(); render(); sectionMgr();
+    });
+  });
+}
+
+function locMgr() {
+  const keys = Object.keys(S.locations).sort();
+  openSheet(`<h3>定位紀錄（${keys.length}）</h3>
+    <div class="row"><input id="lq" placeholder="搜尋，例如 北埔路"></div>
+    <div class="list" id="ll"></div><button class="btn ghost" id="close">關閉</button>`, sh => {
+    const draw = () => {
+      const q = sh.querySelector('#lq').value.trim();
+      const ks = keys.filter(k => !q || k.includes(q));
+      sh.querySelector('#ll').innerHTML = ks.map(k => { const [st, no] = k.split('|'); return `<div class="li"><span>${esc(st)} ${esc(no)}</span><button class="btn sm" data-k="${esc(k)}" data-a="nav">導航</button><button class="btn danger sm" data-k="${esc(k)}" data-a="del">刪除</button></div>`; }).join('') || '<div class="li"><span class="small">沒有紀錄</span></div>';
+      sh.querySelectorAll('#ll button').forEach(b => b.onclick = () => {
+        const [st, no] = b.dataset.k.split('|');
+        if (b.dataset.a === 'nav') navTo(st, no);
+        else if (confirm('刪除此定位紀錄？')) { delete S.locations[b.dataset.k]; keys.splice(keys.indexOf(b.dataset.k), 1); save(); render(); draw(); }
+      });
+    };
+    sh.querySelector('#lq').oninput = draw; draw();
+    sh.querySelector('#close').onclick = closeSheet;
+  });
+}
+
+function backupMgr() {
+  openSheet(`<h3>備份 / 還原</h3>
+    <p class="small">資料儲存在這台裝置的瀏覽器內。換手機或換瀏覽器前，請先下載備份檔，再到新裝置還原。</p>
+    <div class="row"><button class="btn" id="dl">下載備份檔</button><button class="btn ghost" id="ul">從備份檔還原</button>
+    <input type="file" id="file" accept=".json,application/json" hidden></div>
+    <button class="btn ghost" id="close">關閉</button>`, sh => {
+    sh.querySelector('#close').onclick = closeSheet;
+    sh.querySelector('#dl').onclick = () => {
+      const blob = new Blob([JSON.stringify(S, null, 1)], { type: 'application/json' });
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+      a.download = `包裹遞送備份_${new Date().toISOString().slice(0, 10)}.json`; a.click();
+    };
+    sh.querySelector('#ul').onclick = () => sh.querySelector('#file').click();
+    sh.querySelector('#file').onchange = e => {
+      const f = e.target.files[0]; if (!f) return;
+      f.text().then(t => {
+        try { const d = JSON.parse(t); if (!d.sections) throw 0; if (!confirm('還原會覆蓋目前所有資料，確定？')) return; S = d; save(); expanded.clear(); render(); closeSheet(); toast('還原完成'); }
+        catch (_) { alert('檔案格式不正確'); }
+      });
+    };
+  });
+}
+
+render();
+</script>
+</body>
+</html>
