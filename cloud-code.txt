@@ -1,0 +1,151 @@
+/**
+ * 包裹遞送助手 - Google 試算表雲端同步
+ * 貼到試算表的「擴充功能 → Apps Script」，執行一次 setup，再部署為網頁應用程式。
+ * 只會存取這一個試算表：
+ * @OnlyCurrentDoc
+ */
+var SH_CFG = '連線設定', SH_LOC = '定位', SH_DOC = '系統資料';
+var LOC_HEAD = ['街道', '門牌', '緯度', '經度', '誤差(公尺)', '更新時間', '時間戳記'];
+
+/* 執行一次：建立分頁並產生連線密碼（重複執行不會清掉資料，也不會換密碼） */
+function setup() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var cfg = sheet_(ss, SH_CFG), loc = sheet_(ss, SH_LOC), doc = sheet_(ss, SH_DOC);
+  cfg.getRange(1, 1, 1, 2).setNumberFormat('@');
+  if (!String(cfg.getRange(1, 2).getValues()[0][0])) {
+    var pw = (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, '').slice(0, 20);
+    cfg.getRange(1, 1, 1, 2).setValues([['連線密碼', pw]]);
+    cfg.getRange(2, 1, 1, 1).setValues([['請勿把密碼或本試算表分享給別人']]);
+  }
+  if (loc.getLastRow() === 0) loc.getRange(1, 1, 1, LOC_HEAD.length).setValues([LOC_HEAD]);
+  doc.getRange(1, 3, 1, 1).setValues([['程式使用，請勿修改此分頁']]);
+}
+
+function doGet() { return ContentService.createTextOutput('包裹遞送雲端同步：運作中'); }
+
+function doPost(e) {
+  var out;
+  try {
+    var req = JSON.parse(e.postData.contents);
+    var lock = LockService.getScriptLock();
+    if (!lock.tryLock(20000)) out = { ok: false, error: 'busy' };
+    else try { out = handle_(req); SpreadsheetApp.flush(); } finally { lock.releaseLock(); }
+  } catch (err) { out = { ok: false, error: 'server: ' + err }; }
+  return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON);
+}
+
+function handle_(req) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var cfg = ss.getSheetByName(SH_CFG);
+  var pw = cfg ? String(cfg.getRange(1, 2).getValues()[0][0]).trim() : '';
+  if (!pw) return { ok: false, error: 'setup' };
+  if (String(req.key || '') !== pw) return { ok: false, error: 'auth' };
+  var res = { ok: true };
+
+  /* ---- 定位 ---- */
+  var sh = sheet_(ss, SH_LOC), L = readLocs_(sh), fp0 = print_(L);
+  var ops = req.ops || [];
+  if (ops.length) { applyOps_(sh, L, ops); L = readLocs_(sh); }
+  res.fp = print_(L);
+  if (req.fp === fp0) {                       // 手機已是最新，只回傳這次異動的結果
+    res.results = {};
+    ops.forEach(function (o) { res.results[o.k] = L[o.k] ? L[o.k].v : null; });
+  } else {
+    res.locs = {};
+    Object.keys(L).forEach(function (k) { res.locs[k] = L[k].v; });
+  }
+
+  /* ---- 區段 / 街道 / 門牌 ---- */
+  var ds = sheet_(ss, SH_DOC), D = readDoc_(ds);
+  var dev = String(req.dev || ''), me = D.devs[dev] || { last: '', dead: [] };
+  // 手機問「上次那一版有沒有收到」：沒收到就作廢，之後才遲到的也不接受，避免數量重複相加
+  if (req.cancel && me.last !== req.cancel && me.dead.indexOf(req.cancel) < 0) {
+    me.dead = me.dead.concat([req.cancel]).slice(-10);
+    D.devs[dev] = me; writeHead_(ds, D);
+  }
+  if (req.doc && String(req.rev || '') === D.rev && me.dead.indexOf(req.pushId) < 0) {
+    D.rev = Utilities.getUuid(); D.doc = req.doc;
+    me.last = req.pushId; D.devs[dev] = me;
+    writeDoc_(ds, D);
+    res.accepted = true;
+  } else if (String(req.rev || '') !== D.rev) res.doc = D.doc;
+  res.rev = D.rev; res.last = me.last;
+  return res;
+}
+
+function sheet_(ss, name) { return ss.getSheetByName(name) || ss.insertSheet(name); }
+
+function readLocs_(sh) {
+  var m = {}, n = sh.getLastRow();
+  if (n < 2) return m;
+  sh.getRange(2, 1, n - 1, 7).getValues().forEach(function (r, i) {
+    var st = String(r[0]).trim(), no = String(r[1]).trim(), lat = Number(r[2]), lng = Number(r[3]);
+    if (!st || !no || r[2] === '' || r[3] === '' || isNaN(lat) || isNaN(lng)) return;
+    var k = st + '|' + no, t = Number(r[6]) || 0;
+    if (m[k] && m[k].v.t >= t) return;
+    m[k] = { row: i + 2, v: { lat: lat, lng: lng, acc: Number(r[4]) || 0, t: t } };
+  });
+  return m;
+}
+
+function print_(L) {
+  var s = Object.keys(L).sort().map(function (k) { return k + JSON.stringify(L[k].v); }).join('\n');
+  return Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, s, Utilities.Charset.UTF_8));
+}
+
+function applyOps_(sh, L, ops) {
+  var add = {}, del = [];
+  ops.forEach(function (o) {
+    var cur = L[o.k];
+    if (o.v) {
+      if (cur && cur.v.t > o.v.t) return;     // 雲端較新，不覆蓋
+      if (cur) writeRows_(sh, cur.row, [row_(o.k, o.v)]);
+      else add[o.k] = row_(o.k, o.v);
+    } else if (cur && cur.v.t <= (o.t || 0)) del.push(cur.row);
+  });
+  var rows = Object.keys(add).map(function (k) { return add[k]; });
+  if (rows.length) {
+    if (sh.getLastRow() === 0) sh.getRange(1, 1, 1, LOC_HEAD.length).setValues([LOC_HEAD]);
+    writeRows_(sh, sh.getLastRow() + 1, rows);
+  }
+  del.sort(function (a, b) { return b - a; }).forEach(function (r) { sh.deleteRow(r); });
+}
+
+function row_(k, v) {
+  var i = k.lastIndexOf('|');
+  return [k.slice(0, i), k.slice(i + 1), v.lat, v.lng, v.acc || 0,
+    Utilities.formatDate(new Date(v.t), 'Asia/Taipei', 'yyyy-MM-dd HH:mm'), v.t];
+}
+
+function writeRows_(sh, start, rows) {
+  var need = start + rows.length - 1 - sh.getMaxRows();
+  if (need > 0) sh.insertRowsAfter(sh.getMaxRows(), need);
+  sh.getRange(start, 1, rows.length, 2).setNumberFormat('@');   // 純文字，避免 5-1 被當成日期
+  sh.getRange(start, 6, rows.length, 1).setNumberFormat('@');
+  sh.getRange(start, 1, rows.length, 7).setValues(rows);
+}
+
+function readDoc_(sh) {
+  var head = sh.getRange(1, 1, 1, 2).getValues()[0], n = sh.getLastRow();
+  var rev = String(head[0] || ''), devs = {};
+  try { devs = JSON.parse(String(head[1] || '{}')); } catch (e) {}
+  var doc = n < 2 ? '' : sh.getRange(2, 1, n - 1, 1).getValues()
+    .map(function (r) { return String(r[0]).slice(1); }).join('');
+  try { JSON.parse(doc); } catch (e) { rev = ''; doc = ''; }     // 分頁被清空或損壞，視為沒有資料
+  if (!rev || !doc) { rev = ''; doc = null; }
+  return { rev: rev, doc: doc, devs: devs };
+}
+
+function writeDoc_(sh, D) {
+  var rows = [];
+  for (var i = 0; i < D.doc.length; i += 40000) rows.push(['#' + D.doc.slice(i, i + 40000)]);
+  var old = sh.getLastRow(), need = rows.length + 1 - sh.getMaxRows();
+  if (need > 0) sh.insertRowsAfter(sh.getMaxRows(), need);
+  writeHead_(sh, D);
+  sh.getRange(2, 1, rows.length, 1).setNumberFormat('@').setValues(rows);
+  if (old > rows.length + 1) sh.getRange(rows.length + 2, 1, old - rows.length - 1, 1).clearContent();
+}
+
+function writeHead_(sh, D) {
+  sh.getRange(1, 1, 1, 2).setNumberFormat('@').setValues([[D.rev, JSON.stringify(D.devs)]]);
+}

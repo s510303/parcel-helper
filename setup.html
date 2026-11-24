@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>雲端同步設定教學</title>
+<style>
+body{margin:0;background:#f3f5f8;color:#1d2330;font-family:system-ui,"Noto Sans TC","Microsoft JhengHei",sans-serif;line-height:1.7}
+main{max-width:760px;margin:0 auto;padding:20px 16px 80px}
+h1{font-size:26px;margin:8px 0}
+section{background:#fff;border-radius:12px;padding:8px 20px 16px;margin:14px 0}
+h2{font-size:19px;margin:12px 0 6px}
+code{background:#eef1f6;border-radius:4px;padding:1px 6px}
+button{font:inherit;font-weight:700;border:0;border-radius:10px;background:#1f6feb;color:#fff;padding:12px 20px;cursor:pointer}
+textarea{width:100%;box-sizing:border-box;height:150px;margin-top:10px;font-family:monospace;font-size:12px;border:1px solid #d5dae3;border-radius:8px;padding:8px}
+.warn{background:#fff4e0;border-left:4px solid #e8960c;padding:8px 12px;border-radius:6px}
+a{color:#1f6feb}
+</style>
+</head>
+<body><main>
+<h1>雲端同步設定教學</h1>
+<p>請用<b>電腦</b>操作，只需要做一次，約 10 分鐘。</p>
+<p class="warn">開始前，請先在手機的程式按 ☰ →「備份 / 還原」下載一份備份檔。</p>
+
+<section><h2>1. 建立試算表</h2><ol>
+<li>登入你自己的 Google 帳號，開啟 <a href="https://sheets.new" target="_blank" rel="noopener">sheets.new</a>。</li>
+<li>左上角取名，例如「包裹遞送」。</li></ol></section>
+
+<section><h2>2. 貼上程式</h2><ol>
+<li>試算表上方選單：<b>擴充功能 → Apps Script</b>。</li>
+<li>把編輯區原本的內容<b>全部刪掉</b>。</li>
+<li>按下面按鈕複製程式，貼到編輯區，再按上方的<b>儲存</b>圖示（或 Ctrl+S）。</li></ol>
+<button id="copy">複製程式</button>
+<textarea id="code" readonly>載入中…</textarea></section>
+
+<section><h2>3. 執行一次 setup</h2><ol>
+<li>編輯區上方的函式選單選 <code>setup</code>，按<b>執行</b>。</li>
+<li>出現「需要授權」時按<b>審查權限</b>，選你的帳號。</li>
+<li>若看到「Google 尚未驗證這個應用程式」，按<b>進階</b> →<b>前往…（不安全）</b> →<b>允許</b>。</li></ol>
+<p>會出現這個提示，是因為程式是你自己帳號裡的私人程式，沒有送 Google 審查。它只要求存取<b>這一個試算表</b>；如果畫面要求的權限不只這樣，請先不要允許。</p>
+<p>完成後，試算表會多出「連線設定」、「定位」、「系統資料」三個分頁。「連線設定」的 B1 就是<b>連線密碼</b>。</p></section>
+
+<section><h2>4. 部署</h2><ol>
+<li>Apps Script 右上角：<b>部署 → 新增部署作業</b>。</li>
+<li>「選取類型」旁的齒輪，選<b>網頁應用程式</b>。</li>
+<li>執行身分：<b>我</b>。誰可以存取：<b>所有人</b>（不要選「所有已登入 Google 帳戶的使用者」）。</li>
+<li>按<b>部署</b>，複製<b>網頁應用程式網址</b>（結尾是 <code>/exec</code>）。</li></ol>
+<p>選「所有人」是讓手機不必登入就能連線；沒有連線密碼的人讀不到也改不了資料。試算表本身不會因此公開。</p></section>
+
+<section><h2>5. 連線</h2><ol>
+<li>先用<b>存有最多資料的那台手機</b>：☰ →「雲端同步」，填入網址和密碼，按<b>連線</b>。可以用 LINE 的 Keep 筆記或寄信給自己，把網址和密碼傳到手機。</li>
+<li>上方圖示變成 <b>☁✓</b> 就完成了。打開試算表的「定位」分頁，應該看得到你的定位。</li>
+<li>其他裝置：在已連線的那台按「複製連線碼」，貼到新裝置即可。</li></ol></section>
+
+<section><h2>注意事項</h2><ul>
+<li>網址和密碼（或連線碼）等於鑰匙，請勿給別人。外流時，把「連線設定」B1 改成新密碼，再讓手機重新連線。</li>
+<li>「定位」分頁可以直接修改或刪除；「系統資料」分頁請勿修改。</li>
+<li>改壞時，可用試算表的<b>檔案 → 版本記錄</b>還原。</li></ul></section>
+</main>
+<script>
+fetch('cloud-code.txt').then(r => { if (!r.ok) throw 0; return r.text(); }).then(t => { code.value = t; }).catch(() => { code.value = '載入失敗，請重新整理'; });
+document.getElementById('copy').onclick = async e => {
+  code.select();
+  try { await navigator.clipboard.writeText(code.value); } catch (_) { document.execCommand('copy'); }
+  e.target.textContent = '已複製 ✔';
+};
+</script>
+</body></html>

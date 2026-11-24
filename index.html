@@ -119,6 +119,7 @@ header{position:sticky;top:0;z-index:20;background:var(--primary);color:#fff;pad
 <header>
   <div class="hrow">
     <select id="secSel" aria-label="選擇區段"></select>
+    <button class="hbtn" id="btnCloud" aria-label="雲端同步">☁</button>
     <button class="hbtn" id="btnSort">排序</button>
     <button class="hbtn" id="btnMenu">☰</button>
   </div>
@@ -165,9 +166,17 @@ function mergeLocs(a, b) {          // 同一地址取較新的一筆
 }
 function readLocs() { try { return JSON.parse(localStorage.getItem(LOCKEY)) || {}; } catch (e) { return {}; } }
 function changeLocs(fn) {
-  const m = readLocs(); fn(m);
+  const m = readLocs(), before = Object.assign({}, m); fn(m);
+  if (S.cloud) {                                   // 記下待上傳的異動
+    const now = Date.now();
+    for (const k in m) if (JSON.stringify(m[k]) !== JSON.stringify(before[k])) S.cloud.outbox[k] = { v: m[k] };
+    for (const k in before) if (!m[k]) S.cloud.outbox[k] = { t: now };
+  }
+  writeLocs(m); save();
+}
+function writeLocs(m) {
   try { localStorage.setItem(LOCKEY, JSON.stringify(m)); } catch (e) { alert('定位儲存失敗：' + e.message); }
-  S.locations = m; save();
+  S.locations = m;
 }
 
 let lastRaw = null;
@@ -178,7 +187,9 @@ function load() {
     const sec = { id: uid(), name: '宗四', streets: DEFAULT_STREETS.map(newStreet) };
     s = { sections: [sec], cur: sec.id, locations: {}, hideEmpty: false, showDone: false, autoLoc: true };
   }
-  s.locations = mergeLocs(readLocs(), s.locations || {});   // 舊版資料自動併入
+  const known = readLocs();
+  s.locations = mergeLocs(known, s.locations || {});        // 舊版資料自動併入
+  if (s.cloud) for (const k in s.locations) if (s.locations[k] !== known[k]) s.cloud.outbox[k] = { v: s.locations[k] };
   try { localStorage.setItem(LOCKEY, JSON.stringify(s.locations)); } catch (e) {}
   s.sections.forEach(x => x.streets.forEach(mergeDup));     // 舊版留下的重複門牌合併
   return s;
@@ -195,11 +206,14 @@ function mergeDup(street) {
 let S = load();
 function save() {
   try { lastRaw = JSON.stringify(S); localStorage.setItem(KEY, lastRaw); } catch (e) { alert('儲存失敗：' + e.message); }
+  scheduleSync();
 }
 // 另一個視窗改過資料時，先換成最新的，避免用舊資料覆蓋
 function syncFromDisk() {
   try { if (localStorage.getItem(KEY) === lastRaw) return; } catch (e) { return; }
-  S = load(); closeSheet(); render();
+  const n = load();
+  if (JSON.stringify([n.sections, n.locations, n.cur]) === JSON.stringify([S.sections, S.locations, S.cur])) { S.cloud = n.cloud; showCloud(); return; }
+  S = n; closeSheet(); render();
 }
 window.addEventListener('storage', e => { if (e.key === KEY || e.key === null) syncFromDisk(); });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) syncFromDisk(); });
@@ -312,6 +326,7 @@ function toggleDone(street, item) {
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+const justDone = i => { const d = Date.now() - i.doneAt; return d >= 0 && d < 2500; };
 function counts(st) {
   let loc = 0, pkg = 0, dpkg = 0;
   for (const i of st.items) { if (i.done) dpkg += i.qty; else { loc++; pkg += i.qty; } }
@@ -345,15 +360,15 @@ function renderNow() {
   $('tgShowDone').classList.toggle('on', S.showDone);
 
   let tl = 0, tp = 0, td = 0;
-  const now = Date.now();
+  showCloud();
   document.body.classList.toggle('sorting', sortMode);
   const html = s.streets.map(st => {
     const c = counts(st); tl += c.loc; tp += c.pkg; td += c.dpkg;
-    if (S.hideEmpty && !sortMode && c.loc === 0 && !st.items.some(i => i.done && now - i.doneAt < 2500)) return '';
+    if (S.hideEmpty && !sortMode && c.loc === 0 && !st.items.some(i => i.done && justDone(i))) return '';
     const open = expanded.has(st.id) && !sortMode;
-    const visible = st.items.filter(i => !i.done || S.showDone || now - i.doneAt < 2500);
+    const visible = st.items.filter(i => !i.done || S.showDone || justDone(i));
     const items = visible.map(i => {
-      const fading = i.done && !S.showDone && now - i.doneAt < 2500;
+      const fading = i.done && !S.showDone && justDone(i);
       const hasLoc = !!getLoc(st.name, i.no);
       return `<div class="item ${i.done ? 'done' : ''} ${fading ? 'fading' : ''}" data-s="${st.id}" data-i="${i.id}">
         <button class="tap" data-act="done">${hasLoc ? '📍' : ''}${esc(i.no)}${i.qty > 1 ? `<span class="q">${i.qty}</span>` : ''}</button>
@@ -549,7 +564,8 @@ $('toastBtn').onclick = () => {
 };
 
 /* ================= 彈出視窗 ================= */
-function openSheet(html, bind) { $('sheet').innerHTML = html; $('mask').classList.add('show'); bind && bind($('sheet')); }
+let sheetKind = '';
+function openSheet(html, bind, kind) { sheetKind = kind || ''; $('sheet').innerHTML = html; $('mask').classList.add('show'); bind && bind($('sheet')); }
 function closeSheet() { $('mask').classList.remove('show'); }
 $('mask').addEventListener('click', e => { if (e.target === $('mask')) closeSheet(); });
 
@@ -592,6 +608,7 @@ $('btnMenu').onclick = () => {
     <button data-m="clearDone">🧹 清除已完成的門牌</button>
     <button data-m="newday" class="red">🌅 開始新的一天（清空本區段所有門牌）</button>
     <button data-m="locs">🗺 定位紀錄（${Object.keys(S.locations).length} 筆）</button>
+    <button data-m="cloud">☁ 雲端同步（Google 試算表）：${S.cloud ? '已連線' : '未設定'}</button>
     <button data-m="backup">💾 備份 / 還原資料</button>
     <button data-m="close">關閉</button></div>`,
     sh => sh.querySelectorAll('[data-m]').forEach(b => b.onclick = () => {
@@ -600,6 +617,7 @@ $('btnMenu').onclick = () => {
       if (m === 'sections') return sectionMgr();
       if (m === 'locs') return locMgr();
       if (m === 'backup') return backupMgr();
+      if (m === 'cloud') return cloudMgr();
       closeSheet();
       if (m === 'autoloc') { S.autoLoc = !S.autoLoc; save(); if (S.autoLoc) recordLocPermissionHint(); toast('自動記錄定位：' + (S.autoLoc ? '開' : '關')); }
       if (m === 'clearDone') { s.streets.forEach(st => st.items = st.items.filter(i => !i.done)); save(); render(); toast('已清除已完成的門牌'); }
@@ -697,7 +715,7 @@ function backupMgr() {
     <button class="btn ghost" id="close">關閉</button>`, sh => {
     sh.querySelector('#close').onclick = closeSheet;
     sh.querySelector('#dl').onclick = () => {
-      const blob = new Blob([JSON.stringify(S, null, 1)], { type: 'application/json' });
+      const blob = new Blob([JSON.stringify(Object.assign({}, S, { cloud: undefined /* 備份檔不含連線密碼 */ }), null, 1)], { type: 'application/json' });
       const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
       a.download = `包裹遞送備份_${new Date().toISOString().slice(0, 10)}.json`; a.click();
     };
@@ -705,14 +723,257 @@ function backupMgr() {
     sh.querySelector('#file').onchange = e => {
       const f = e.target.files[0]; if (!f) return;
       f.text().then(t => {
-        try { const d = JSON.parse(t); if (!d.sections) throw 0; if (!confirm('還原會覆蓋目前的區段、街道與門牌（定位紀錄會合併，同地址取較新的），確定？')) return; S = d; changeLocs(m => Object.assign(m, mergeLocs(m, d.locations || {}))); expanded.clear(); render(); closeSheet(); toast('還原完成'); }
+        try { const d = JSON.parse(t); if (!d.sections) throw 0; if (!confirm('還原會覆蓋目前的區段、街道與門牌（定位紀錄會合併，同地址取較新的），確定？')) return; const cl = S.cloud, dl = d.locations || {}; S = d; delete S.cloud; if (cl) S.cloud = cl; d.locations = dl; changeLocs(m => Object.assign(m, mergeLocs(m, d.locations || {}))); expanded.clear(); render(); closeSheet(); toast('還原完成'); }
         catch (_) { alert('檔案格式不正確'); }
       });
     };
   });
 }
 
+/* ================= 雲端同步（Google 試算表） =================
+   S.cloud = { url, key, dev, rev, base, pending, outbox, fp, lastOk, err, hold }
+   base    ：上次與雲端一致時的區段/街道/門牌（JSON 字串），用來三方合併
+   dev     ：這台裝置的代號
+   pending ：已送出但還沒確認的那一版。有它在時，先向雲端確認收到沒，再送新的
+   outbox  ：待上傳的定位異動；先存在本機，連上網再補傳 */
+const normSections = list => list.map(s => ({
+  id: s.id, name: s.name, streets: s.streets.map(st => ({
+    id: st.id, name: st.name, items: st.items.map(i => {
+      const o = { id: i.id, no: i.no, qty: i.qty, done: !!i.done }; if (i.done) o.doneAt = i.doneAt || 0; return o;
+    }).sort((a, b) => cmpNo(a.no, b.no) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+  }))
+}));
+const docOf = () => JSON.stringify(normSections(S.sections));
+
+// 三方合併：base 為共同起點，l 本機、r 雲端
+function mergeList(b, l, r, kid) {
+  const B = new Map((b || []).map(x => [x.id, x])), L = new Map(l.map(x => [x.id, x])), R = new Map(r.map(x => [x.id, x]));
+  const same = (x, y) => JSON.stringify(x) === JSON.stringify(y);
+  const pick = id => {
+    const bb = B.get(id), ll = L.get(id), rr = R.get(id);
+    if (ll && rr) return mergeObj(bb, ll, rr, kid);
+    const one = ll || rr;                             // 只剩一邊有
+    if (!bb) return one;                              // 新增的
+    if (!kid) return one.qty > bb.qty ? Object.assign({}, one, { qty: one.qty - bb.qty }) : null;  // 門牌已被刪：只留後來多加的件數
+    return same(bb, one) ? null : one;                // 另一邊刪了：沒改過就跟著刪
+  };
+  const common = new Set([...B.keys()].filter(id => L.has(id)));
+  const moved = !same((b || []).map(x => x.id).filter(id => common.has(id)), l.map(x => x.id).filter(id => common.has(id)));
+  const first = moved ? l : r, other = moved ? r : l;
+  const order = first.map(x => x.id);
+  other.forEach((x, i) => {                           // 另一邊獨有的，插在它原本前一筆的後面
+    if (order.includes(x.id)) return;
+    const prev = i ? order.indexOf(other[i - 1].id) : -1;
+    order.splice(i && prev < 0 ? order.length : prev + 1, 0, x.id);
+  });
+  return order.map(pick).filter(Boolean);
+}
+function mergeObj(b, l, r, kid) {
+  b = b || {};
+  const o = {};
+  for (const f of new Set([...Object.keys(l), ...Object.keys(r)])) {
+    if (f === kid) o[f] = mergeList(b[f], l[f], r[f], f === 'streets' ? 'items' : '');
+    else if (f === 'qty' && b.qty) o.qty = Math.max(1, l.qty + r.qty - b.qty);  // 兩邊都有加，合計
+    else { const v = JSON.stringify(l[f]) !== JSON.stringify(b[f]) ? l[f] : r[f]; if (v !== undefined) o[f] = v; }
+  }
+  // 一邊畫掉、另一邊同時又加件：多出來的件數仍要送，不可一起算成已完成
+  const add = !b.done && l.done && !r.done ? r.qty - b.qty : !b.done && r.done && !l.done ? l.qty - b.qty : 0;
+  if (add > 0) { o.done = false; o.qty = add; }
+  if (!o.done) delete o.doneAt;
+  return o;
+}
+function mergeDocs(baseJ, l, r) {
+  // 先複製：合併時會改動內容，不可動到傳入的雲端原件
+  const m = JSON.parse(JSON.stringify(mergeList(baseJ ? JSON.parse(baseJ) : [], l, r, 'streets')));
+  // 相同門牌合併時保留雲端那一筆，本機新增的件數加上去
+  const onCloud = new Set(r.flatMap(s => s.streets.flatMap(t => t.items.map(i => i.id))));
+  m.forEach(s => s.streets.forEach(t => { t.items.sort((x, y) => onCloud.has(y.id) - onCloud.has(x.id)); mergeDup(t); }));
+  return normSections(m);
+}
+
+async function callCloud(url, body) {
+  const ac = new AbortController(), t = setTimeout(() => ac.abort(), 30000);
+  try {
+    const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body), credentials: 'omit', redirect: 'follow', signal: ac.signal });
+    const j = await r.json();
+    if (!j.ok) throw new Error({ auth: '連線密碼不正確', setup: '試算表還沒執行 setup', busy: '雲端忙碌中' }[j.error] || j.error);
+    return j;
+  } catch (e) {
+    if (e.name === 'AbortError' || e instanceof TypeError) throw Object.assign(new Error('連不上雲端（沒網路或網址不正確）'), { net: true });
+    if (e instanceof SyntaxError) throw new Error('雲端回應不正確，請檢查網址與部署權限');
+    throw e;
+  } finally { clearTimeout(t); }
+}
+
+let syncing = false, syncTimer = 0;
+const cloudDirty = () => !!S.cloud && (Object.keys(S.cloud.outbox).length > 0 || docOf() !== S.cloud.base);
+function scheduleSync(ms) {
+  if (!S.cloud) return;
+  clearTimeout(syncTimer); syncTimer = setTimeout(() => { if (cloudDirty()) syncNow(); }, ms || 1500);
+}
+// 使用者正在操作選單、拖曳、選字時，先不套用雲端資料
+const uiBusy = () => dragging || composing || ($('mask').classList.contains('show') && sheetKind !== 'cloud');
+
+async function syncNow() {
+  if (!S.cloud || syncing) return;
+  syncing = true; showCloud();
+  const run = async () => {
+    try {
+      for (let i = 0; i < 5 && S.cloud; i++) {
+        const again = await syncOnce();
+        if (!again) break;
+      }
+      if (S.cloud) { S.cloud.err = ''; S.cloud.lastOk = Date.now(); save(); }
+    } catch (e) { if (S.cloud) { S.cloud.err = e.message; S.cloud.net = !!e.net; save(); } }
+  };
+  try {
+    if (navigator.locks) await navigator.locks.request('parcel-sync', { ifAvailable: true }, lk => lk && run());
+    else await run();
+  } finally {
+    clearTimeout(syncTimer);
+    syncing = false; showCloud();
+    if (S.cloud && !S.cloud.err && cloudDirty()) scheduleSync(3000);
+    if (sheetKind === 'cloud' && $('mask').classList.contains('show') && S.cloud && !$('cUrl')) cloudMgr();
+  }
+}
+
+// 一次往返；回傳 true 表示還有東西要再同步
+async function syncOnce() {
+  let C = S.cloud; const url = C.url;
+  if (uiBusy()) { scheduleSync(4000); return false; }
+  const cur = docOf(), sent = Object.assign({}, C.outbox);
+  const body = { key: C.key, dev: C.dev, rev: C.rev || '', fp: C.fp || '', ops: Object.keys(sent).map(k => Object.assign({ k }, sent[k])) };
+  if (C.pending) body.cancel = C.pending.id;
+  else if (cur !== C.base) {
+    body.doc = cur; body.pushId = uid();
+    C.pending = { id: body.pushId, doc: cur };
+    save();
+  }
+  const res = await callCloud(url, body);
+  C = S.cloud; if (!C || C.url !== url) return false;
+  if (uiBusy()) { scheduleSync(4000); return false; }   // 等使用者操作完再套用；pending 保留供下次判斷
+
+  /* 定位 */
+  for (const k in sent) if (JSON.stringify(C.outbox[k]) === JSON.stringify(sent[k])) delete C.outbox[k];
+  const local = readLocs();
+  let next = res.locs ? Object.assign({}, res.locs) : Object.assign({}, local);
+  if (res.results) for (const k in res.results) { if (res.results[k]) next[k] = res.results[k]; else delete next[k]; }
+  if (res.locs) {
+    const lost = Object.keys(local).filter(k => !next[k] && !C.outbox[k] && !sent[k]);
+    if (C.allowDrop) { delete C.allowDrop; delete C.hold; }
+    else if (lost.length > Math.max(5, Object.keys(local).length * 0.2)) {
+      // 雲端一次少很多筆，可能是試算表被誤刪：先保留本機，等使用者決定
+      lost.forEach(k => { next[k] = local[k]; }); C.hold = lost;
+    } else delete C.hold;
+  }
+  for (const k in C.outbox) { if (C.outbox[k].v) next[k] = C.outbox[k].v; else delete next[k]; }
+  C.fp = C.hold ? '' : res.fp;
+
+  /* 區段、街道、門牌 */
+  const mine = docOf();
+  let base = C.base;
+  if (C.pending && res.last === C.pending.id) base = C.pending.doc;   // 之前送出的其實已被雲端收下
+  C.pending = null;
+  if (res.accepted) { C.base = body.doc; C.rev = res.rev; }
+  else if (res.rev !== (C.rev || '')) {
+    if (res.doc) {
+      const remote = normSections(JSON.parse(res.doc));
+      S.sections = mergeDocs(base, JSON.parse(mine), remote);
+      C.base = JSON.stringify(remote);
+    } else C.base = null;                               // 雲端是空的，下一輪重新上傳
+    C.rev = res.rev;
+  }
+  const changed = docOf() !== mine || JSON.stringify(next) !== JSON.stringify(local);
+  writeLocs(next); save();
+  if (changed) render();
+  return cloudDirty();
+}
+
+function showCloud() {
+  const b = $('btnCloud'), C = S.cloud;
+  b.textContent = !C ? '☁' : syncing ? '☁⟳' : C.hold || (C.err && !C.net) ? '☁⚠' : C.err || cloudDirty() ? '☁↑' : '☁✓';
+}
+$('btnCloud').onclick = () => cloudMgr();
+
+const encodeLink = C => btoa(JSON.stringify([C.url, C.key])).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+function decodeLink(s) { try { const a = JSON.parse(atob(s.trim().replace(/-/g, '+').replace(/_/g, '/'))); return Array.isArray(a) && a.length === 2 ? a : null; } catch (e) { return null; } }
+
+async function connectCloud(url, key) {
+  url = url.trim(); key = key.trim();
+  if (!/^https:\/\/script\.google\.com\/macros\/(a\/[^/]+\/)?s\/[\w-]+\/exec$/.test(url)) return alert('網址不正確。應為 https://script.google.com/macros/s/……/exec');
+  if (!key) return alert('請輸入連線密碼');
+  let r;
+  try { r = await callCloud(url, { key, rev: '', fp: '', ops: [] }); } catch (e) { return alert('連線失敗：' + e.message); }
+  const start = useCloud => {
+    const outbox = {}; for (const k in readLocs()) outbox[k] = { v: readLocs()[k] };   // 本機定位全部併入雲端
+    S.cloud = { url, key, dev: uid(), rev: r.rev, base: null, pending: null, outbox, fp: '' };
+    if (r.doc) {
+      const remote = normSections(JSON.parse(r.doc));
+      S.cloud.base = JSON.stringify(remote);
+      if (useCloud) { S.sections = JSON.parse(S.cloud.base); S.cur = (S.sections[0] || {}).id; expanded.clear(); }
+    }
+    save(); render(); cloudMgr(); syncNow();
+  };
+  const fresh = S.sections.length === 1 && S.sections[0].streets.every(x => !x.items.length) && S.sections[0].streets.map(x => x.name).join() === DEFAULT_STREETS.join();
+  if (!r.doc || fresh) return start(!!r.doc);
+  const d = JSON.parse(r.doc), n = d.reduce((a, s) => a + s.streets.reduce((x, t) => x + t.items.length, 0), 0);
+  openSheet(`<h3>雲端已經有資料</h3><p class="small">雲端：${d.map(s => esc(s.name)).join('、')}，共 ${n} 個門牌。<br>區段、街道與門牌要以哪一邊為準？（定位紀錄兩邊會合併，不受影響）</p>
+    <div class="menu"><button id="cA">☁ 用雲端的（這台的區段與門牌會被取代）</button><button id="cB" class="red">📱 用這台的（雲端的區段與門牌會被取代）</button><button id="cC">取消</button></div>`, sh => {
+    sh.querySelector('#cA').onclick = () => start(true);
+    sh.querySelector('#cB').onclick = () => { if (confirm('確定用這台的資料取代雲端的區段與門牌？')) start(false); };
+    sh.querySelector('#cC').onclick = closeSheet;
+  }, 'cloud');
+}
+
+function cloudMgr() {
+  const C = S.cloud;
+  if (!C) return openSheet(`<h3>☁ 雲端同步（Google 試算表）</h3>
+    <p class="small">第一次使用請先用電腦完成設定：<a href="setup.html" target="_blank">開啟設定教學</a>。<br>連線後，定位、區段、街道順序與門牌都會存到你的試算表，換手機也能接著用。</p>
+    <div class="row"><input id="cUrl" placeholder="網頁應用程式網址（https://script.google.com/…/exec）" autocomplete="off"></div>
+    <div class="row"><input id="cKey" placeholder="連線密碼" autocomplete="off" autocapitalize="off"></div>
+    <p class="small">已經有其他裝置連線？把那台的「連線碼」貼在這裡就好：</p>
+    <div class="row"><input id="cCode" placeholder="連線碼" autocomplete="off" autocapitalize="off"></div>
+    <div class="row"><button class="btn" id="go">連線</button><button class="btn ghost" id="close">關閉</button></div>`, sh => {
+    sh.querySelector('#close').onclick = closeSheet;
+    sh.querySelector('#go').onclick = async e => {
+      const code = sh.querySelector('#cCode').value, a = code.trim() ? decodeLink(code) : [sh.querySelector('#cUrl').value, sh.querySelector('#cKey').value];
+      if (!a) return alert('連線碼不正確，請重新複製');
+      e.target.disabled = true; e.target.textContent = '連線中…';
+      await connectCloud(a[0], a[1]);
+      e.target.disabled = false; e.target.textContent = '連線';
+    };
+  }, 'cloud');
+  const n = Object.keys(C.outbox).length, dd = docOf() !== C.base;
+  openSheet(`<h3>☁ 雲端同步</h3>
+    <p>${syncing ? '同步中…' : C.err ? '⚠ ' + esc(C.err) : cloudDirty() ? '有資料等待上傳' : '✅ 已同步'}</p>
+    <p class="small">上次成功：${C.lastOk ? new Date(C.lastOk).toLocaleString() : '尚未'}<br>待上傳定位：${n} 筆　門牌異動：${dd ? '有' : '無'}<br>本機定位：${Object.keys(S.locations).length} 筆</p>
+    ${C.hold ? `<p>⚠ 雲端試算表少了 <b>${C.hold.length}</b> 筆定位，可能被誤刪。這台手機仍保留著。</p>
+      <div class="row"><button class="btn" id="keep">補回雲端</button><button class="btn danger" id="drop">照雲端刪除</button></div>` : ''}
+    <div class="menu">
+      <button id="now">🔄 立即同步</button>
+      <button id="copy">📋 複製連線碼（給另一台手機用）</button>
+      <button id="off" class="red">中斷連線（資料都會保留）</button>
+      <button id="close">關閉</button></div>
+    <p class="small">連線碼等於密碼，請不要傳給別人。</p>`, sh => {
+    const on = (id, f) => { const b = sh.querySelector('#' + id); if (b) b.onclick = f; };
+    on('close', closeSheet);
+    on('now', () => { syncNow(); if (syncing) cloudMgr(); });
+    on('copy', async () => {
+      const c = encodeLink(C);
+      try { await navigator.clipboard.writeText(c); toast('已複製連線碼'); } catch (e) { prompt('請複製連線碼', c); }
+    });
+    on('off', () => { if (confirm('中斷雲端同步？這台的資料與試算表的資料都會保留。' + (cloudDirty() ? '\n注意：還有資料沒上傳！' : ''))) { delete S.cloud; save(); render(); closeSheet(); } });
+    on('keep', () => { C.hold.forEach(k => { if (S.locations[k]) C.outbox[k] = { v: S.locations[k] }; }); delete C.hold; save(); cloudMgr(); syncNow(); });
+    on('drop', () => { if (confirm(`確定從這台刪除 ${C.hold.length} 筆定位？`)) { C.allowDrop = true; C.fp = ''; save(); syncNow(); } });
+  }, 'cloud');
+}
+
+document.addEventListener('visibilitychange', () => { if (document.hidden) { if (cloudDirty()) syncNow(); } else syncNow(); });
+window.addEventListener('online', () => syncNow());
+setInterval(() => { if (!document.hidden) syncNow(); }, 60000);
+
 render();
+syncNow();
 </script>
 </body>
 </html>
